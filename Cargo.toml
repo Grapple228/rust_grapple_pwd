@@ -1,0 +1,36 @@
+[package]
+name = "grapple_pwd"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = ""
+authors = ["grapple228 <greenapple228882@yandex.ru>"]
+readme = "README.md"
+repository = "https://github.com/grapple228/rust_grapple_pwd.git"
+
+[lints.rust]
+unsafe_code = "forbid"
+unused = { level = "allow", priority = -1 } # For exploratory dev.
+
+[dependencies]
+# App Libs
+grapple_utils = { version = "0.1", features = ["b64"] }
+
+# Async
+tokio = { version = "1", features = ["full"] }
+
+# Crypt
+argon2 = {version = "0.5", features = ["std"] }
+rand = "0.8"
+blake3 = "1.8"
+
+# Other
+derive_more = {version = "1", features = ["from"] }
+serde = { version = "1", features = ["derive"] }
+uuid = { version = "1", features = ["fast-rng", "v4", "serde"] }
+enum_dispatch = "0.3"
+lazy-regex = "3"
+
+
+[dev-dependencies]
+anyhow = "1"
