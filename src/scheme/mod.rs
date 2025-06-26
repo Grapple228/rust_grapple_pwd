@@ -21,9 +21,9 @@ pub enum SchemeStatus {
 
 #[enum_dispatch]
 pub trait Scheme {
-    fn hash(&self, to_hash: &ContentToHash) -> Result<String>;
+    fn hash(&self, key_id: &str, to_hash: &ContentToHash) -> Result<String>;
 
-    fn validate(&self, to_hash: &ContentToHash, pwd_ref: &str) -> Result<()>;
+    fn validate(&self, key_id: &str, to_hash: &ContentToHash, content_ref: &str) -> Result<()>;
 
     fn requires_salt(&self) -> bool {
         true

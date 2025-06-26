@@ -6,11 +6,11 @@ use super::{Result, Scheme};
 pub struct SchemeTmp;
 
 impl Scheme for SchemeTmp {
-    fn hash(&self, _to_hash: &ContentToHash) -> Result<String> {
+    fn hash(&self, key_id: &str, _to_hash: &ContentToHash) -> Result<String> {
         Ok(String::from("tmp_hash"))
     }
 
-    fn validate(&self, _to_hash: &ContentToHash, _pwd_ref: &str) -> Result<()> {
+    fn validate(&self, key_id: &str, _to_hash: &ContentToHash, _pwd_ref: &str) -> Result<()> {
         Ok(())
     }
 }

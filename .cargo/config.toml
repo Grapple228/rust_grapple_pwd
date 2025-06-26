@@ -6,8 +6,8 @@
 
 # Scope down tracing, to filter out external lib tracing.
 RUST_LOG = "debug"
-PWD_SCHEME = "argon"
-PWD_KEY = "ZyNaprlTBPu1Fe07KyNEgGawsgtjswOPCp8ERskS9aUBe_RmSwL3y-eUrx6m8eT8wkCRAnCcdz0N7ZeaIsJqfw"
+HASHER_SCHEME = "argon2id"
+HASHER_KEYS = "pwd:ZyNaprlTBPu1Fe07KyNEgGawsgtjswOPCp8ERskS9aUBe_RmSwL3y-eUrx6m8eT8wkCRAnCcdz0N7ZeaIsJqfw,client_secret:OwGlfd6U4PDtZHPyICjq4ID-B7TGGzcElUicgVb21u_IedwmmyjxKCkbQhF0g--6gn-0y8dUVW9ROFwSX9UQ1Q"
 
 # -- Service Environment Variables
 # IMPORTANT: 

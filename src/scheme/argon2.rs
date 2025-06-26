@@ -1,35 +1,35 @@
-use crate::{pwd_config, ContentToHash};
+use crate::{hash_config, ContentToHash};
 
 use super::{Error, Result, Scheme};
 use argon2::password_hash::SaltString;
 use argon2::{
     Algorithm, Argon2, Params, PasswordHash, PasswordHasher as _, PasswordVerifier as _, Version,
 };
-use std::sync::OnceLock;
+use log::warn;
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::{Arc, OnceLock};
 
 pub struct SchemeArgon2id;
 
 impl Scheme for SchemeArgon2id {
-    fn hash(&self, to_hash: &ContentToHash) -> Result<String> {
-        let Some(salt) = to_hash.salt else {
-            // Early return if salt not provided
-            return Err(Error::Salt);
-        };
+    fn hash(&self, key_id: &str, to_hash: &ContentToHash) -> Result<String> {
+        let salt = to_hash.salt.ok_or_else(|| Error::Salt)?;
 
-        let argon2 = get_argon2();
+        let argon2 = get_argon2(key_id).ok_or_else(|| Error::KeyNotFound(key_id.to_string()))?;
 
         let salt_b64 = SaltString::encode_b64(salt.as_bytes()).map_err(|_| Error::Salt)?;
 
-        let pwd = argon2
+        let content = argon2
             .hash_password(to_hash.content.as_bytes(), &salt_b64)
             .map_err(|_| Error::Hash)?
             .to_string();
 
-        Ok(pwd)
+        Ok(content)
     }
 
-    fn validate(&self, to_hash: &ContentToHash, pwd_ref: &str) -> Result<()> {
-        let argon2 = get_argon2();
+    fn validate(&self, key_id: &str, to_hash: &ContentToHash, pwd_ref: &str) -> Result<()> {
+        let argon2 = get_argon2(key_id).ok_or_else(|| Error::KeyNotFound(key_id.to_string()))?;
 
         let parsed_hash_ref = PasswordHash::new(pwd_ref).map_err(|_| Error::Hash)?;
 
@@ -40,23 +40,32 @@ impl Scheme for SchemeArgon2id {
 
     /// Since argon2 inserts a salt into hash, set mark that we don't need to store salt in db
     fn requires_salt(&self) -> bool {
-        true
+        false
     }
 }
 
-fn get_argon2() -> &'static Argon2<'static> {
-    static INSTANCE: OnceLock<Argon2<'static>> = OnceLock::new();
+pub fn get_argon2(key_id: &str) -> Option<&'static Argon2<'static>> {
+    static INSTANCE: OnceLock<HashMap<String, Argon2<'static>>> = OnceLock::new();
 
-    INSTANCE.get_or_init(|| {
-        let key = &pwd_config().pwd_key;
-        Argon2::new_with_secret(
-            key,
-            Algorithm::Argon2id, // Same as Argon2::default()
-            Version::V0x13,      // Same as Argon2::default()
-            Params::default(),
-        )
-        .expect("Unable to  init argon2")
-    })
+    let argons = INSTANCE.get_or_init(|| {
+        let mut keys = HashMap::new();
+
+        for (id, key) in &hash_config().keys {
+            let argon = Argon2::new_with_secret(
+                &key,
+                Algorithm::Argon2id, // Same as Argon2::default()
+                Version::V0x13,      // Same as Argon2::default()
+                Params::default(),
+            )
+            .expect("Unable to  init argon2");
+
+            keys.insert(id.clone(), argon);
+        }
+
+        keys
+    });
+
+    argons.get(key_id)
 }
 
 // region:    --- Tests
@@ -80,7 +89,7 @@ mod tests {
 
         // -- Exec
         let scheme = SchemeArgon2id;
-        let res = scheme.hash(&fx_to_hash)?;
+        let res = scheme.hash("pwd", &fx_to_hash)?;
 
         // -- Check
         assert_eq!(res, fx_res);

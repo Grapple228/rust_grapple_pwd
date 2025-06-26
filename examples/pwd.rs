@@ -1,4 +1,6 @@
-use grapple_pwd::{hash_pwd, is_salt_required, validate_pwd, ContentToHash, Result, SchemeStatus};
+use grapple_pwd::{
+    hash_content, is_salt_required, validate_content, ContentToHash, Result, SchemeStatus,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -7,8 +9,8 @@ async fn main() -> Result<()> {
     let pwd = "my_password".to_string();
 
     // Hash the password
-    let pwd_to_hash = ContentToHash::with_random_salt(&pwd);
-    let pwd_hashed = hash_pwd(pwd_to_hash).await?;
+    let content_to_hash = ContentToHash::with_random_salt(&pwd);
+    let pwd_hashed = hash_content("pwd", content_to_hash).await?;
 
     println!("pwd_hashed: {pwd_hashed}");
 
@@ -25,7 +27,7 @@ async fn main() -> Result<()> {
         salt: None, // Since it is argon2, then salt is empty in db
     };
 
-    match validate_pwd(to_hash, pwd_hashed).await? {
+    match validate_content("pwd", to_hash, &pwd_hashed).await? {
         SchemeStatus::Ok => println!("Password is valid"),
         SchemeStatus::Outdated => {
             // If scheme in db is outdated, then we need to rehash the password and update the db

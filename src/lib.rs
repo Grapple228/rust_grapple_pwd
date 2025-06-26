@@ -24,7 +24,7 @@ mod scheme;
 
 // -- Flatten
 pub use self::error::{Error, Result};
-pub use config::pwd_config;
+pub use config::hash_config;
 pub use scheme::SchemeStatus;
 
 use crate::scheme::get_scheme;
@@ -63,37 +63,49 @@ impl ContentToHash {
 
 /// Returns true if need to store salt somewhere to decode the hash.
 pub fn is_salt_required() -> Result<bool> {
-    Ok(get_scheme(&pwd_config().pwd_scheme)?.requires_salt())
+    Ok(get_scheme(&hash_config().hash_scheme)?.requires_salt())
 }
 
-/// Hash the password with the default scheme.
-pub async fn hash_pwd(to_hash: ContentToHash) -> Result<String> {
-    tokio::task::spawn_blocking(move || hash_for_scheme(&pwd_config().pwd_scheme, &to_hash))
-        .await
-        .map_err(|_| Error::FailSpawnBlockForHash)?
+/// Hash the content with the default scheme.
+pub async fn hash_content(key_id: &str, to_hash: ContentToHash) -> Result<String> {
+    let key_id = key_id.to_string();
+
+    tokio::task::spawn_blocking(move || {
+        hash_for_scheme(&hash_config().hash_scheme, &key_id, &to_hash)
+    })
+    .await
+    .map_err(|_| Error::FailSpawnBlockForHash)?
 }
 
 /// Validate if an ContentToHash matches.
 /// - Returns `SchemeStatus::Ok` if the password is valid.
 /// - Returns `SchemeStatus::Outdated` if the password is valid but the scheme is outdated.
-pub async fn validate_pwd(to_hash: ContentToHash, pwd_ref: String) -> Result<SchemeStatus> {
-    let PwdParts {
+pub async fn validate_content(
+    key_id: &str,
+    to_hash: ContentToHash,
+    content_ref: &str,
+) -> Result<SchemeStatus> {
+    let ContentParts {
         scheme_name,
         hashed,
-    } = pwd_ref.parse()?;
+    } = content_ref.parse()?;
 
     // Note: We do first, so that we do not have to clonse the scheme_name.
-    let scheme_status = if &scheme_name == &pwd_config().pwd_scheme {
+    let scheme_status = if &scheme_name == &hash_config().hash_scheme {
         SchemeStatus::Ok
     } else {
         SchemeStatus::Outdated
     };
 
+    let key_id = key_id.to_string();
+
     // Note: Since validate might take some time depending on algo
     //       doing a spawn_blocking to avoid
-    tokio::task::spawn_blocking(move || validate_for_scheme(&scheme_name, to_hash, hashed))
-        .await
-        .map_err(|_| Error::FailSpawnBlockForValidate)??;
+    tokio::task::spawn_blocking(move || {
+        validate_for_scheme(&scheme_name, &key_id, to_hash, hashed)
+    })
+    .await
+    .map_err(|_| Error::FailSpawnBlockForValidate)??;
 
     // validate_for_scheme(&scheme_name, to_hash, &hashed).await?;
     Ok(scheme_status)
@@ -102,25 +114,30 @@ pub async fn validate_pwd(to_hash: ContentToHash, pwd_ref: String) -> Result<Sch
 
 // region:    --- Privates
 
-fn hash_for_scheme(scheme_name: &str, to_hash: &ContentToHash) -> Result<String> {
-    let pwd_hashed = get_scheme(scheme_name)?.hash(&to_hash)?;
+fn hash_for_scheme(scheme_name: &str, key_id: &str, to_hash: &ContentToHash) -> Result<String> {
+    let content_hashed = get_scheme(scheme_name)?.hash(key_id, &to_hash)?;
 
-    Ok(format!("#{scheme_name}#{pwd_hashed}"))
+    Ok(format!("#{scheme_name}#{content_hashed}"))
 }
 
-fn validate_for_scheme(scheme_name: &str, to_hash: ContentToHash, pwd_ref: String) -> Result<()> {
-    get_scheme(scheme_name)?.validate(&to_hash, &pwd_ref)?;
+fn validate_for_scheme(
+    scheme_name: &str,
+    key_id: &str,
+    to_hash: ContentToHash,
+    content_ref: String,
+) -> Result<()> {
+    get_scheme(scheme_name)?.validate(key_id, &to_hash, &content_ref)?;
     Ok(())
 }
 
-struct PwdParts {
-    /// The scheme only (e.g., "argon2")
+struct ContentParts {
+    /// The scheme only (e.g., "argon2id")
     scheme_name: String,
     /// The hashed password,
     hashed: String,
 }
 
-impl FromStr for PwdParts {
+impl FromStr for ContentParts {
     type Err = Error;
 
     fn from_str(pwd_with_scheme: &str) -> Result<Self> {
@@ -156,12 +173,12 @@ mod tests {
         };
 
         // -- Exec
-        let pwd_hashed = hash_for_scheme("tmp", &fx_to_hash)?;
-        let pwd_validate = validate_pwd(fx_to_hash, pwd_hashed).await?;
+        let content_hashed = hash_for_scheme("tmp", "pwd", &fx_to_hash)?;
+        let content_validate = validate_content("pwd", fx_to_hash, &content_hashed).await?;
 
         // -- Check
         assert!(
-            matches!(pwd_validate, SchemeStatus::Outdated),
+            matches!(content_validate, SchemeStatus::Outdated),
             "status should be SchemeStatus::Outdated"
         );
 

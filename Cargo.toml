@@ -14,7 +14,7 @@ unused = { level = "allow", priority = -1 } # For exploratory dev.
 
 [dependencies]
 # App Libs
-grapple_utils = { version = "0.1", features = ["b64"] }
+grapple_utils = { version = "0.2", features = ["b64"] }
 
 # Async
 tokio = { version = "1", features = ["full"] }
@@ -30,6 +30,7 @@ serde = { version = "1", features = ["derive"] }
 uuid = { version = "1", features = ["fast-rng", "v4", "serde"] }
 enum_dispatch = "0.3"
 lazy-regex = "3"
+log = "0.4.27"
 
 
 [dev-dependencies]

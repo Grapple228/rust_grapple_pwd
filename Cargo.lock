@@ -271,6 +271,7 @@ dependencies = [
  "enum_dispatch",
  "grapple_utils",
  "lazy-regex",
+ "log",
  "rand 0.8.5",
  "serde",
  "tokio",
@@ -279,12 +280,13 @@ dependencies = [
 
 [[package]]
 name = "grapple_utils"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e25efa33703f5f131cf6d01a22d15a799bf3ee44174207a0b2f66c979030d18"
+checksum = "e09b6febfee661348d29c4a67368bdd1b5d78da9d02ed21c36354cda7df72dd8"
 dependencies = [
  "data-encoding",
  "derive_more",
+ "paste",
 ]
 
 [[package]]
@@ -423,6 +425,12 @@ dependencies = [
  "rand_core 0.6.4",
  "subtle",
 ]
+
+[[package]]
+name = "paste"
+version = "1.0.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "pin-project-lite"

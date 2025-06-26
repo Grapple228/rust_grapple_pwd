@@ -8,6 +8,7 @@ pub enum Error {
     Salt,
     Hash,
     PwdValidate,
+    KeyNotFound(String),
     SchemeNotFound(String),
 }
 
