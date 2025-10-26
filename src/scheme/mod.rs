@@ -42,7 +42,7 @@ pub enum SchemeDispatcher {
 pub fn get_scheme(scheme_name: &str) -> Result<impl Scheme> {
     match scheme_name {
         "argon2id" => Ok(SchemeDispatcher::Argon2id(argon2::SchemeArgon2id)),
-        "hmac-sha256" => Ok(SchemeDispatcher::Sha256(sha256::SchemeHmacSha256)),
+        "hmac_sha256" => Ok(SchemeDispatcher::Sha256(sha256::SchemeHmacSha256)),
         #[cfg(test)]
         "tmp" => Ok(SchemeDispatcher::Tmp(tmp::SchemeTmp)),
         _ => Err(Error::SchemeNotFound(scheme_name.to_string())),
