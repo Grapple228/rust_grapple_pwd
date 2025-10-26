@@ -31,6 +31,9 @@ uuid = { version = "1", features = ["fast-rng", "v4", "serde"] }
 enum_dispatch = "0.3"
 lazy-regex = "3"
 log = "0.4.27"
+constant_time_eq = "0.4.2"
+hmac = "0.12.1"
+sha2 = "0.10.9"
 
 
 [dev-dependencies]

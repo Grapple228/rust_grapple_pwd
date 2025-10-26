@@ -59,75 +59,122 @@ impl ContentToHash {
 
 // endregion: --- Types
 
+/// Main Hasher struct that provides hashing and validation functionality
+/// for different schemes (Argon2id, HMAC, etc.)
+#[derive(Clone, Debug)]
+pub struct Hasher {
+    scheme_name: String,
+    key_id: String,
+}
+
+impl Hasher {
+    /// Create a new Hasher with the specified scheme and key_id
+    pub fn new(scheme_name: impl Into<String>, key_id: impl Into<String>) -> Self {
+        Self {
+            scheme_name: scheme_name.into(),
+            key_id: key_id.into(),
+        }
+    }
+
+    /// Create a Hasher with the default scheme from config
+    pub fn with_default_scheme(key_id: impl Into<String>) -> Result<Self> {
+        let scheme_name = hash_config().hash_scheme.clone();
+        Ok(Self::new(scheme_name, key_id))
+    }
+
+    /// Returns true if the current scheme requires salt
+    pub fn requires_salt(&self) -> Result<bool> {
+        Ok(get_scheme(&self.scheme_name)?.requires_salt())
+    }
+
+    /// Hash the content with the configured scheme
+    pub async fn hash(&self, to_hash: ContentToHash) -> Result<String> {
+        let scheme_name = self.scheme_name.clone();
+        let key_id = self.key_id.clone();
+
+        tokio::task::spawn_blocking(move || Self::hash_for_scheme(&scheme_name, &key_id, &to_hash))
+            .await
+            .map_err(|_| Error::FailSpawnBlockForHash)?
+    }
+
+    /// Validate if content matches the reference hash
+    pub async fn validate(
+        &self,
+        to_hash: ContentToHash,
+        content_ref: &str,
+    ) -> Result<SchemeStatus> {
+        let ContentParts {
+            scheme_name,
+            hashed,
+        } = content_ref.parse()?;
+
+        // Check if scheme is up-to-date
+        let scheme_status = if &scheme_name == &self.scheme_name {
+            SchemeStatus::Ok
+        } else {
+            SchemeStatus::Outdated
+        };
+
+        let key_id = self.key_id.clone();
+
+        tokio::task::spawn_blocking(move || {
+            Self::validate_for_scheme(&scheme_name, &key_id, to_hash, hashed)
+        })
+        .await
+        .map_err(|_| Error::FailSpawnBlockForValidate)??;
+
+        Ok(scheme_status)
+    }
+
+    /// Get the current scheme name
+    pub fn scheme_name(&self) -> &str {
+        &self.scheme_name
+    }
+
+    /// Get the key ID
+    pub fn key_id(&self) -> &str {
+        &self.key_id
+    }
+
+    // Private helper functions
+    fn hash_for_scheme(scheme_name: &str, key_id: &str, to_hash: &ContentToHash) -> Result<String> {
+        let content_hashed = get_scheme(scheme_name)?.hash(key_id, &to_hash)?;
+        Ok(format!("#{scheme_name}#{content_hashed}"))
+    }
+
+    fn validate_for_scheme(
+        scheme_name: &str,
+        key_id: &str,
+        to_hash: ContentToHash,
+        content_ref: String,
+    ) -> Result<()> {
+        get_scheme(scheme_name)?.validate(key_id, &to_hash, &content_ref)?;
+        Ok(())
+    }
+}
+
 // region:    --- Public Functions
 
+// Convenience functions for backward compatibility
 /// Returns true if need to store salt somewhere to decode the hash.
 pub fn is_salt_required() -> Result<bool> {
-    Ok(get_scheme(&hash_config().hash_scheme)?.requires_salt())
+    Hasher::with_default_scheme(&hash_config().hash_scheme)?.requires_salt()
 }
 
 /// Hash the content with the default scheme.
 pub async fn hash_content(key_id: &str, to_hash: ContentToHash) -> Result<String> {
-    let key_id = key_id.to_string();
-
-    tokio::task::spawn_blocking(move || {
-        hash_for_scheme(&hash_config().hash_scheme, &key_id, &to_hash)
-    })
-    .await
-    .map_err(|_| Error::FailSpawnBlockForHash)?
+    Hasher::with_default_scheme(key_id)?.hash(to_hash).await
 }
 
 /// Validate if an ContentToHash matches.
-/// - Returns `SchemeStatus::Ok` if the password is valid.
-/// - Returns `SchemeStatus::Outdated` if the password is valid but the scheme is outdated.
 pub async fn validate_content(
     key_id: &str,
     to_hash: ContentToHash,
     content_ref: &str,
 ) -> Result<SchemeStatus> {
-    let ContentParts {
-        scheme_name,
-        hashed,
-    } = content_ref.parse()?;
-
-    // Note: We do first, so that we do not have to clonse the scheme_name.
-    let scheme_status = if &scheme_name == &hash_config().hash_scheme {
-        SchemeStatus::Ok
-    } else {
-        SchemeStatus::Outdated
-    };
-
-    let key_id = key_id.to_string();
-
-    // Note: Since validate might take some time depending on algo
-    //       doing a spawn_blocking to avoid
-    tokio::task::spawn_blocking(move || {
-        validate_for_scheme(&scheme_name, &key_id, to_hash, hashed)
-    })
-    .await
-    .map_err(|_| Error::FailSpawnBlockForValidate)??;
-
-    // validate_for_scheme(&scheme_name, to_hash, &hashed).await?;
-    Ok(scheme_status)
-}
-// endregion: --- Public Functions
-
-// region:    --- Privates
-
-fn hash_for_scheme(scheme_name: &str, key_id: &str, to_hash: &ContentToHash) -> Result<String> {
-    let content_hashed = get_scheme(scheme_name)?.hash(key_id, &to_hash)?;
-
-    Ok(format!("#{scheme_name}#{content_hashed}"))
-}
-
-fn validate_for_scheme(
-    scheme_name: &str,
-    key_id: &str,
-    to_hash: ContentToHash,
-    content_ref: String,
-) -> Result<()> {
-    get_scheme(scheme_name)?.validate(key_id, &to_hash, &content_ref)?;
-    Ok(())
+    Hasher::with_default_scheme(key_id)?
+        .validate(to_hash, content_ref)
+        .await
 }
 
 struct ContentParts {
@@ -158,13 +205,12 @@ impl FromStr for ContentParts {
 // region:    --- Tests
 #[cfg(test)]
 mod tests {
-    pub type Result<T> = core::result::Result<T, Error>;
-    pub type Error = Box<dyn std::error::Error>; // For tests.
-
     use super::*;
 
+    type Result<T> = core::result::Result<T, Box<dyn std::error::Error>>;
+
     #[tokio::test]
-    async fn test_multi_scheme_ok() -> Result<()> {
+    async fn test_hasher_struct() -> Result<()> {
         // -- Setup & Fixtures
         let fx_salt = Uuid::parse_str("f05e8961-d6ad-4086-9e78-a6de065e5453")?;
         let fx_to_hash = ContentToHash {
@@ -172,15 +218,35 @@ mod tests {
             salt: Some(fx_salt),
         };
 
-        // -- Exec
-        let content_hashed = hash_for_scheme("tmp", "pwd", &fx_to_hash)?;
-        let content_validate = validate_content("pwd", fx_to_hash, &content_hashed).await?;
+        // -- Exec with Hasher struct
+        let hasher = Hasher::new("tmp", "pwd");
+        let content_hashed = hasher.hash(fx_to_hash.clone()).await?;
+        let content_validate = hasher.validate(fx_to_hash, &content_hashed).await?;
 
         // -- Check
         assert!(
-            matches!(content_validate, SchemeStatus::Outdated),
-            "status should be SchemeStatus::Outdated"
+            matches!(content_validate, SchemeStatus::Ok),
+            "status should be SchemeStatus::Ok"
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_hasher_different_schemes() -> Result<()> {
+        let fx_to_hash = ContentToHash::with_random_salt("test content");
+
+        // Test with different schemes
+        let argon_hasher = Hasher::new("argon2id", "pwd");
+        let hmac_hasher = Hasher::new("hmac-sha256", "client_secret");
+
+        let argon_hash = argon_hasher.hash(fx_to_hash.clone()).await?;
+        let hmac_hash = hmac_hasher.hash(fx_to_hash.clone()).await?;
+
+        // Both should hash successfully but produce different results
+        assert!(argon_hash.starts_with("#argon2id#"));
+        assert!(hmac_hash.starts_with("#hmac-sha256#"));
+        assert_ne!(argon_hash, hmac_hash);
 
         Ok(())
     }
