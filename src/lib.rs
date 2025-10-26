@@ -78,8 +78,11 @@ impl Hasher {
 
     /// Create a Hasher with the default scheme from config
     pub fn with_default_scheme(key_id: impl Into<String>) -> Result<Self> {
-        let scheme_name = hash_config().hash_scheme.clone();
-        Ok(Self::new(scheme_name, key_id))
+        if let Some(scheme_name) = &hash_config().hash_scheme {
+            Ok(Self::new(scheme_name, key_id))
+        } else {
+            Err(Error::DefaultSchemeNotSet)
+        }
     }
 
     /// Returns true if the current scheme requires salt
@@ -158,7 +161,7 @@ impl Hasher {
 // Convenience functions for backward compatibility
 /// Returns true if need to store salt somewhere to decode the hash.
 pub fn is_salt_required() -> Result<bool> {
-    Hasher::with_default_scheme(&hash_config().hash_scheme)?.requires_salt()
+    Hasher::with_default_scheme("default")?.requires_salt()
 }
 
 /// Hash the content with the default scheme.

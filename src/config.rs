@@ -17,7 +17,7 @@ pub fn hash_config() -> &'static HashConfig {
 #[derive(Debug)]
 pub struct HashConfig {
     /// The scheme to use for content hashing.
-    pub hash_scheme: String,
+    pub hash_scheme: Option<String>,
     /// The keys to use for content hashing in Base64Url format.
     pub keys: HashMap<String, Vec<u8>>,
 }
@@ -25,7 +25,9 @@ pub struct HashConfig {
 impl HashConfig {
     fn load_from_env() -> grapple_utils::envs::Result<HashConfig> {
         Ok(HashConfig {
-            hash_scheme: get("HASHER_SCHEME")?,
+            hash_scheme: get("HASHER_DEFAULT_SCHEME")
+                .map(|v| Some(v))
+                .unwrap_or_default(),
             keys: get_keys_b64u_as_u8s("HASHER_KEYS")?,
         })
     }
