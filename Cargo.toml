@@ -22,7 +22,6 @@ tokio = { version = "1", features = ["full"] }
 # Crypt
 argon2 = {version = "0.5", features = ["std"] }
 rand = "0.8"
-blake3 = "1.8"
 
 # Other
 derive_more = {version = "1", features = ["from"] }
@@ -34,7 +33,7 @@ log = "0.4.27"
 constant_time_eq = "0.4.2"
 hmac = "0.12.1"
 sha2 = "0.10.9"
-
+bytes = "1.11.1"
 
 [dev-dependencies]
 anyhow = "1"

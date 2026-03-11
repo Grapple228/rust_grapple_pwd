@@ -6,10 +6,10 @@ use grapple_pwd::{
 async fn main() -> Result<()> {
     // HASH PASSWORD
     // Get user password
-    let pwd = "my_password".to_string();
+    let pwd = "my_password";
 
     // Hash the password
-    let content_to_hash = ContentToHash::with_random_salt(&pwd);
+    let content_to_hash = ContentToHash::with_random_salt(pwd);
     let pwd_hashed = hash_content("pwd", content_to_hash).await?;
 
     println!("pwd_hashed: {pwd_hashed}");
@@ -23,7 +23,7 @@ async fn main() -> Result<()> {
     // VALIDATE THE PASSWORD
     // Read salt and hash from db
     let to_hash = ContentToHash {
-        content: pwd.to_string(),
+        content: pwd.into(),
         salt: None, // Since it is argon2, then salt is empty in db
     };
 

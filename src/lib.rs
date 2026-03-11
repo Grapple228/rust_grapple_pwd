@@ -1,36 +1,22 @@
 //! The pwd lib is responsible for hashing and validating hashes.
 //! It follows a multi-scheme hashing code design, allowing each
 //! scheme to provide its own hashing and validation methods.
-//!
-//! Code Design Points:
-//!
-//! - Exposes two public async functions `hash_pwd(...)` and `validate_pwd(...)`
-//! - `ContentToHash` represents the data to be hashed along with the corresponding salt.
-//! - `SchemeStatus` is the result of `validate_pwd` which, upon successful validation, indicates
-//!   whether the password needs to be re-hashed to adopt the latest scheme.
-//! - Internally, the `pwd` lib implements a multi-scheme code design with the `Scheme` trait.
-//! - The `Scheme` trait exposes sync functions `hash` and `validate` to be implemented for each scheme.
-//! - The two public async functions `hash_pwd(...)` and `validate_pwd(...)` call the scheme using
-//!   `spawn_blocking` to ensure that long hashing/validation processes do not hinder the execution of smaller tasks.
-//! - Schemes are designed to be agnostic of whether they are in an async or sync context, hence they are async-free.
 
 // region:    --- Modules
-
-// -- Modules
 
 mod config;
 mod error;
 mod scheme;
 
-// -- Flatten
 pub use self::error::{Error, Result};
+use bytes::Bytes;
 pub use config::hash_config;
 pub use scheme::SchemeStatus;
 
 use crate::scheme::get_scheme;
 use lazy_regex::regex_captures;
 use scheme::Scheme;
-use std::str::FromStr;
+use std::{borrow::Cow, str::FromStr};
 use uuid::Uuid;
 
 // endregion: --- Modules
@@ -38,19 +24,15 @@ use uuid::Uuid;
 // region:    --- Types
 
 /// The clean content to hash, with the salt.
-///
-/// Notes:
-///    - Since content is sensitive information, we do NOT implement default debug for this struct.
-///    - The clone is only implement for testing
 #[cfg_attr(test, derive(Clone))]
 pub struct ContentToHash {
-    pub content: String, // Clear content.
+    pub content: Bytes,
     pub salt: Option<Uuid>,
 }
 
 impl ContentToHash {
-    pub fn with_random_salt(content: impl Into<String>) -> Self {
-        ContentToHash {
+    pub fn with_random_salt(content: impl Into<Bytes>) -> Self {
+        Self {
             content: content.into(),
             salt: Some(Uuid::new_v4()),
         }
@@ -59,8 +41,7 @@ impl ContentToHash {
 
 // endregion: --- Types
 
-/// Main Hasher struct that provides hashing and validation functionality
-/// for different schemes (Argon2id, HMAC, etc.)
+/// Main Hasher struct
 #[derive(Clone, Debug)]
 pub struct Hasher {
     scheme_name: String,
@@ -68,7 +49,6 @@ pub struct Hasher {
 }
 
 impl Hasher {
-    /// Create a new Hasher with the specified scheme and key_id
     pub fn new(scheme_name: impl Into<String>, key_id: impl Into<String>) -> Self {
         Self {
             scheme_name: scheme_name.into(),
@@ -76,7 +56,6 @@ impl Hasher {
         }
     }
 
-    /// Create a Hasher with the default scheme from config
     pub fn with_default_scheme(key_id: impl Into<String>) -> Result<Self> {
         if let Some(scheme_name) = &hash_config().hash_scheme {
             Ok(Self::new(scheme_name, key_id))
@@ -85,7 +64,6 @@ impl Hasher {
         }
     }
 
-    /// Returns true if the current scheme requires salt
     pub fn requires_salt(&self) -> Result<bool> {
         Ok(get_scheme(&self.scheme_name)?.requires_salt())
     }
@@ -95,7 +73,7 @@ impl Hasher {
         let scheme_name = self.scheme_name.clone();
         let key_id = self.key_id.clone();
 
-        tokio::task::spawn_blocking(move || Self::hash_for_scheme(&scheme_name, &key_id, &to_hash))
+        tokio::task::spawn_blocking(move || Self::hash_for_scheme(&scheme_name, &key_id, to_hash))
             .await
             .map_err(|_| Error::FailSpawnBlockForHash)?
     }
@@ -111,7 +89,6 @@ impl Hasher {
             hashed,
         } = content_ref.parse()?;
 
-        // Check if scheme is up-to-date
         let scheme_status = if &scheme_name == &self.scheme_name {
             SchemeStatus::Ok
         } else {
@@ -129,18 +106,15 @@ impl Hasher {
         Ok(scheme_status)
     }
 
-    /// Get the current scheme name
     pub fn scheme_name(&self) -> &str {
         &self.scheme_name
     }
 
-    /// Get the key ID
     pub fn key_id(&self) -> &str {
         &self.key_id
     }
 
-    // Private helper functions
-    fn hash_for_scheme(scheme_name: &str, key_id: &str, to_hash: &ContentToHash) -> Result<String> {
+    fn hash_for_scheme(scheme_name: &str, key_id: &str, to_hash: ContentToHash) -> Result<String> {
         let content_hashed = get_scheme(scheme_name)?.hash(key_id, &to_hash)?;
         Ok(format!("#{scheme_name}#{content_hashed}"))
     }
@@ -158,18 +132,14 @@ impl Hasher {
 
 // region:    --- Public Functions
 
-// Convenience functions for backward compatibility
-/// Returns true if need to store salt somewhere to decode the hash.
 pub fn is_salt_required() -> Result<bool> {
     Hasher::with_default_scheme("default")?.requires_salt()
 }
 
-/// Hash the content with the default scheme.
 pub async fn hash_content(key_id: &str, to_hash: ContentToHash) -> Result<String> {
     Hasher::with_default_scheme(key_id)?.hash(to_hash).await
 }
 
-/// Validate if an ContentToHash matches.
 pub async fn validate_content(
     key_id: &str,
     to_hash: ContentToHash,
@@ -181,9 +151,7 @@ pub async fn validate_content(
 }
 
 struct ContentParts {
-    /// The scheme only (e.g., "argon2id")
     scheme_name: String,
-    /// The hashed password,
     hashed: String,
 }
 
@@ -191,15 +159,12 @@ impl FromStr for ContentParts {
     type Err = Error;
 
     fn from_str(pwd_with_scheme: &str) -> Result<Self> {
-        regex_captures!(
-            r#"^#(\w+)#(.*)"#, // a literal regex
-            pwd_with_scheme
-        )
-        .map(|(_, scheme, hashed)| Self {
-            scheme_name: scheme.to_string(),
-            hashed: hashed.to_string(),
-        })
-        .ok_or(Error::PwdWithSchemeFailedParse)
+        regex_captures!(r#"^#(\w+)#(.*)"#, pwd_with_scheme)
+            .map(|(_, scheme, hashed)| Self {
+                scheme_name: scheme.to_string(),
+                hashed: hashed.to_string(),
+            })
+            .ok_or(Error::PwdWithSchemeFailedParse)
     }
 }
 
@@ -209,6 +174,7 @@ impl FromStr for ContentParts {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::borrow::Cow;
 
     type Result<T> = core::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -217,7 +183,7 @@ mod tests {
         // -- Setup & Fixtures
         let fx_salt = Uuid::parse_str("f05e8961-d6ad-4086-9e78-a6de065e5453")?;
         let fx_to_hash = ContentToHash {
-            content: "hello world".to_string(),
+            content: "hello world".into(),
             salt: Some(fx_salt),
         };
 
@@ -237,7 +203,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_hasher_different_schemes() -> Result<()> {
-        let fx_to_hash = ContentToHash::with_random_salt("test content");
+        let fx_to_hash = ContentToHash::with_random_salt("test content"); // ✅ байты!
 
         // Test with different schemes
         let argon_hasher = Hasher::new("argon2id", "pwd");
